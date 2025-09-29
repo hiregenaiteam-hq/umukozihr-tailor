@@ -21,7 +21,7 @@ def test_tex_content():
             "experience": [{
                 "title": "CTO",
                 "company": "UmukoziHR",
-                "start_date": "2024-01",
+                "start_date": "2025-05",
                 "end_date": "Present",
                 "bullets": ["Built scalable systems", "Led technical team"]
             }],
