@@ -10,6 +10,7 @@ from app.db.database import get_db
 from app.db.models import User
 from app.auth.auth import verify_token
 from datetime import datetime
+import uuid as python_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +27,17 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     if not payload:
         return None
     
-    # Verify user exists
-    user = db.query(User).filter(User.id == payload["sub"]).first()
-    return user.id if user else None
+    try:
+        # Convert string UUID from JWT back to UUID object for database query
+        user_id_str = payload["sub"]
+        user_id_uuid = python_uuid.UUID(user_id_str)
+        
+        # Verify user exists
+        user = db.query(User).filter(User.id == user_id_uuid).first()
+        return str(user.id) if user else None
+    except (ValueError, KeyError) as e:
+        logger.error(f"Error processing user token: {e}")
+        return None
 
 @router.post("/generate")
 def generate(request: GenerateRequest, user_id: str = Depends(get_current_user)):
@@ -66,8 +75,8 @@ def generate(request: GenerateRequest, user_id: str = Depends(get_current_user))
         artifact = {
             "job_id": j.id or j.title,
             "region": j.region,
-            "resume_tex_file": f"/artifacts/{os.path.basename(resume_tex_path)}",
-            "cover_letter_tex_file": f"/artifacts/{os.path.basename(cover_letter_tex_path)}",
+            "resume_tex": f"/artifacts/{os.path.basename(resume_tex_path)}",
+            "cover_letter_tex": f"/artifacts/{os.path.basename(cover_letter_tex_path)}",
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
             "pdf_compilation": {
@@ -93,10 +102,12 @@ def generate(request: GenerateRequest, user_id: str = Depends(get_current_user))
         if os.path.exists(resume_tex_path):
             with open(resume_tex_path, 'r', encoding='utf-8') as f:
                 content = f.read()
+                artifact["resume_tex_content"] = content  # Full content as required by project specs
                 artifact["resume_tex_preview"] = content[:1000] + "..." if len(content) > 1000 else content
         if os.path.exists(cover_letter_tex_path):
             with open(cover_letter_tex_path, 'r', encoding='utf-8') as f:
                 content = f.read()
+                artifact["cover_letter_tex_content"] = content  # Full content as required by project specs
                 artifact["cover_letter_tex_preview"] = content[:1000] + "..." if len(content) > 1000 else content
             
         artifacts.append(artifact)
@@ -106,9 +117,75 @@ def generate(request: GenerateRequest, user_id: str = Depends(get_current_user))
     logger.info(f"Generated {len(artifacts)} artifacts, bundle: {zip_path}")
     
     return {
-        "run": run_id, 
+        "run_id": run_id,  # Changed from "run" to "run_id" for frontend compatibility
+        "run": run_id,     # Keep both for backward compatibility
         "artifacts": artifacts, 
         "zip": f"/artifacts/{os.path.basename(zip_path)}", 
         "authenticated": bool(user_id),
-        "user_id": user_id
+        "user_id": user_id,
+        "status": "completed"  # Since we process synchronously, it's always completed
     }
+
+@router.get("/status/{run_id}")
+def get_generation_status(run_id: str, user_id: str = Depends(get_current_user)):
+    """Get generation status - for frontend polling compatibility
+    
+    Since we process synchronously, this endpoint simulates async behavior
+    by checking if artifacts exist for the given run_id.
+    """
+    logger.info(f"Status check requested for run_id: {run_id}")
+    
+    # Check if artifacts exist for this run_id in the artifacts directory
+    artifacts_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "artifacts"))
+    
+    # Look for files matching this run_id pattern
+    matching_files = []
+    if os.path.exists(artifacts_dir):
+        for filename in os.listdir(artifacts_dir):
+            if filename.startswith(run_id):
+                matching_files.append(filename)
+    
+    if matching_files:
+        # Process exists and completed - reconstruct artifacts list
+        artifacts = []
+        zip_file = None
+        
+        for filename in matching_files:
+            if filename.endswith('.zip'):
+                zip_file = f"/artifacts/{filename}"
+            elif filename.endswith('.pdf'):
+                # Group PDFs by job
+                base_name = filename.replace(f"{run_id}_", "").replace('.pdf', '')
+                # Handle both _cover and _cover_letter patterns
+                job_id = base_name.split('_resume')[0].split('_cover')[0]
+                
+                # Find or create artifact for this job
+                artifact = next((a for a in artifacts if a['job_id'] == job_id), None)
+                if not artifact:
+                    artifact = {
+                        "job_id": job_id,
+                        "region": "US",  # Default, could be extracted from filename
+                        "created_at": datetime.now().isoformat(),
+                        "updated_at": datetime.now().isoformat()
+                    }
+                    artifacts.append(artifact)
+                
+                if 'resume' in filename:
+                    artifact["resume_pdf"] = f"/artifacts/{filename}"
+                elif 'cover' in filename:  # This will match both _cover and _cover_letter
+                    artifact["cover_letter_pdf"] = f"/artifacts/{filename}"
+        
+        return {
+            "status": "completed",
+            "run_id": run_id,
+            "artifacts": artifacts,
+            "zip": zip_file,
+            "message": "Documents generated successfully"
+        }
+    else:
+        # No artifacts found - might be processing or failed
+        return {
+            "status": "processing",
+            "run_id": run_id,
+            "message": "Documents are being generated..."
+        }

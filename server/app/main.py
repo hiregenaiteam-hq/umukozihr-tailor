@@ -1,6 +1,7 @@
 import logging
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from app.routes.v1_profile import router as profile_router
 from app.routes.v1_generate import router as generate_router
 from app.routes.v1_auth import router as auth_router
@@ -19,6 +20,16 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="UmukoziHR Resume Tailor API", version="v1.2")
 logger.info("Starting UmukoziHR Resume Tailor API v1.2")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+logger.info("CORS middleware configured")
 
 app.include_router(auth_router)
 app.include_router(profile_router, prefix="/api/v1/profile")
