@@ -176,7 +176,7 @@ def run_generation_for_job(db: Session, user_id: str, job: DBJob, profile_data: 
     return db_run
 
 
-@router.post("/generate")
+@router.post("/")
 def generate(
     request: GenerateRequest,
     user_id: str = Depends(get_current_user),
@@ -206,8 +206,12 @@ def generate(
             profile_version = db_profile.version
             logger.info(f"Loaded profile version {profile_version} from database")
         else:
-            logger.warning("No profile found in database, using profile from request")
-            # Fall back to request profile if database profile doesn't exist
+            logger.error("No profile found in database for authenticated user")
+            raise HTTPException(status_code=404, detail="Profile not found. Please complete onboarding first.")
+    elif not request.profile:
+        # Unauthenticated AND no profile in request
+        logger.error("No profile provided and user not authenticated")
+        raise HTTPException(status_code=400, detail="Profile required for unauthenticated requests")
 
     # Persist jobs for authenticated users
     db_jobs = []

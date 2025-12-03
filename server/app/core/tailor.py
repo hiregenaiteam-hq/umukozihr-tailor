@@ -54,14 +54,25 @@ def run_tailor(profile: Profile, job: JobJD)->LLMOutput:
     
     raw = call_llm(prompt)
     logger.info(f"LLM response received, length: {len(raw)} chars")
-    
+    logger.debug(f"Raw LLM response (first 500 chars): {raw[:500]}")
+
     # call validator to check the schema
-    data = validate_or_error(raw)
-    logger.info("LLM output passed schema validation")
-    
+    try:
+        data = validate_or_error(raw)
+        logger.info("LLM output passed schema validation")
+    except Exception as validation_error:
+        logger.error(f"Schema validation failed: {validation_error}")
+        logger.error(f"Full raw LLM response that failed validation: {raw}")
+        raise
+
     # check to make sure it is grounded with facts
-    business_rules_check(data, profile)
-    logger.info("LLM output passed business rules validation")
+    try:
+        business_rules_check(data, profile)
+        logger.info("LLM output passed business rules validation")
+    except Exception as business_error:
+        logger.error(f"Business rules validation failed: {business_error}")
+        logger.error(f"Data that failed business rules: {json.dumps(data, indent=2)}")
+        raise
     
     logger.info(f"Tailoring process completed successfully for job: {job.id or job.title}")
     return LLMOutput(**data)

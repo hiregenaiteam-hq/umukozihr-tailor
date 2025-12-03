@@ -1,4 +1,7 @@
 import logging
+import asyncio
+import httpx
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,18 +23,71 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="UmukoziHR Resume Tailor API", version="v1.3")
-logger.info("Starting UmukoziHR Resume Tailor API v1.3")
+# Auto-ping configuration to prevent Render free tier from sleeping
+PING_INTERVAL = 240  # 4 minutes in seconds
+SELF_PING_ENABLED = os.getenv("SELF_PING_ENABLED", "true").lower() == "true"
 
-# Add CORS middleware
+async def self_ping_task():
+    """Background task that pings the server every 4 minutes to keep it alive on Render"""
+    if not SELF_PING_ENABLED:
+        logger.info("Self-ping disabled via SELF_PING_ENABLED environment variable")
+        return
+
+    # Get the service URL from environment or use localhost as fallback
+    service_url = os.getenv("RENDER_EXTERNAL_URL", "http://localhost:8000")
+    logger.info(f"Starting self-ping task - will ping {service_url}/health every {PING_INTERVAL} seconds")
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        while True:
+            try:
+                await asyncio.sleep(PING_INTERVAL)
+                response = await client.get(f"{service_url}/health")
+                if response.status_code == 200:
+                    logger.info(f"Self-ping successful: {response.json()}")
+                else:
+                    logger.warning(f"Self-ping returned status {response.status_code}")
+            except Exception as e:
+                logger.error(f"Self-ping failed: {e}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup/shutdown events"""
+    # Startup
+    logger.info("Starting UmukoziHR Resume Tailor API v1.3")
+
+    # Start self-ping background task
+    ping_task = asyncio.create_task(self_ping_task())
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down UmukoziHR Resume Tailor API v1.3")
+    ping_task.cancel()
+    try:
+        await ping_task
+    except asyncio.CancelledError:
+        pass
+
+app = FastAPI(
+    title="UmukoziHR Resume Tailor API",
+    version="v1.3",
+    lifespan=lifespan
+)
+
+# Add CORS middleware - get allowed origins from environment or use defaults
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-logger.info("CORS middleware configured")
+logger.info(f"CORS middleware configured with origins: {ALLOWED_ORIGINS}")
 
 app.include_router(auth_router)
 app.include_router(profile_router, prefix="/api/v1")

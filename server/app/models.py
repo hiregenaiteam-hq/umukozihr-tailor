@@ -106,7 +106,7 @@ class JobJD(BaseModel):
     jd_text: str
 
 class GenerateRequest(BaseModel):
-    profile: Profile
+    profile: Optional[Profile] = None  # Optional for authenticated users (loaded from DB)
     jobs: List[JobJD]
     prefs: Dict = {}
 

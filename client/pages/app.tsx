@@ -7,6 +7,7 @@ import CompletenessBar from '@/components/CompletenessBar';
 import JDComposer from '@/components/JDComposer';
 import RunCard from '@/components/RunCard';
 import JobCard from '@/components/JobCard';
+import ThemeToggle from '@/components/ThemeToggle';
 import { User, FileText, History, LogOut, Settings } from 'lucide-react';
 
 type Tab = 'profile' | 'generate' | 'history';
@@ -119,15 +120,29 @@ export default function AppPage() {
     }
 
     if (!profile) {
+      console.error('❌ Generate failed: Profile not loaded');
       toast.error('Profile not loaded');
       return;
     }
 
+    console.log('🚀 Starting document generation...', {
+      jobQueueLength: jobQueue.length,
+      jobs: jobQueue.map(j => ({ company: j.company, title: j.title, region: j.region })),
+      profileLoaded: !!profile
+    });
+
     setIsGenerating(true);
     try {
       // Note: Backend will use database profile for authenticated users
-      // We pass empty profile as placeholder (backend ignores it)
-      const response = await generationApi.generate({}, jobQueue);
+      // We pass null as profile (backend loads from database for authenticated users)
+      console.log('📡 Calling generation API with null profile (backend will load from DB)...');
+      const response = await generationApi.generate(null, jobQueue);
+
+      console.log('✅ Generation successful!', {
+        runId: response.data.run_id,
+        artifactsCount: response.data.artifacts?.length || 0,
+        bundlePath: response.data.bundle_path
+      });
 
       setCurrentRun(response.data);
       setJobQueue([]); // Clear queue after successful generation
@@ -136,10 +151,17 @@ export default function AppPage() {
       // Reload history
       loadHistory();
     } catch (error: any) {
-      console.error('Error generating documents:', error);
+      console.error('❌ Error generating documents:', {
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        detail: error.response?.data?.detail,
+        fullError: error
+      });
       toast.error(error.response?.data?.detail || 'Failed to generate documents');
     } finally {
       setIsGenerating(false);
+      console.log('🏁 Generation process ended');
     }
   };
 
@@ -158,8 +180,9 @@ export default function AppPage() {
   };
 
   const handleDownload = (url: string, filename: string) => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     const link = document.createElement('a');
-    link.href = `http://localhost:8000${url}`;
+    link.href = `${apiUrl}${url}`;
     link.download = filename;
     link.target = '_blank';
     document.body.appendChild(link);
@@ -180,21 +203,22 @@ export default function AppPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-neutral-900">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+      <div className="bg-white dark:bg-neutral-800 border-b border-gray-200 dark:border-neutral-700 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">UmukoziHR Resume Tailor</h1>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-neutral-50">UmukoziHR Resume Tailor</h1>
               {profile && (
-                <p className="text-sm text-gray-600">Welcome, {profile.basics.full_name}</p>
+                <p className="text-sm text-gray-600 dark:text-neutral-300">Welcome, {profile.basics.full_name}</p>
               )}
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <ThemeToggle />
               <button
                 onClick={() => router.push('/onboarding')}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-2"
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded-lg transition-colors flex items-center gap-2"
               >
                 <Settings size={18} />
                 Edit Profile
@@ -212,7 +236,7 @@ export default function AppPage() {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white dark:bg-neutral-800 border-b border-gray-200 dark:border-neutral-700">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex gap-8">
             <button
@@ -354,7 +378,7 @@ export default function AppPage() {
               {currentRun && currentRun.artifacts ? (
                 <div className="space-y-4">
                   {currentRun.artifacts.map((artifact: any, idx: number) => (
-                    <JobCard key={idx} artifact={artifact} />
+                    <JobCard key={idx} data={artifact} />
                   ))}
                 </div>
               ) : (

@@ -1,5 +1,5 @@
 from celery import Celery
-import os, uuid
+import os, uuid, logging
 from datetime import datetime
 from app.core.tailor import run_tailor
 from app.core.tex_compile import render_tex, compile_tex, bundle
@@ -7,6 +7,8 @@ from app.db.database import SessionLocal
 from app.db.models import Run
 from app.storage.s3 import upload_to_s3
 from app.models import Profile, JobJD
+
+logger = logging.getLogger(__name__)
 
 celery_app = Celery(
     'tasks',
@@ -82,7 +84,7 @@ def process_generation(run_id: str, profile_data: dict, jobs_data: list):
                     artifact_urls[f"{job.id or job.title}_cover_pdf"] = s3_cover_pdf
                     
             except Exception as upload_error:
-                print(f"S3 upload failed, using local paths: {upload_error}")
+                logger.warning(f"S3 upload failed, using local paths: {upload_error}")
                 # Keep local paths if S3 fails
                 pass
                 

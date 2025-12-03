@@ -93,9 +93,42 @@ def call_llm(prompt:str)->str:
             contents=[f"{SYSTEM}\n\n{prompt}"],
             config=cfg,
         )
-        result = response.text or "{}"
+
+        # Log detailed response information for debugging
+        logger.debug(f"LLM response object type: {type(response)}")
+        logger.debug(f"LLM response candidates count: {len(response.candidates) if hasattr(response, 'candidates') else 'N/A'}")
+
+        # Check for blocking or safety issues
+        if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+            logger.info(f"LLM prompt feedback: {response.prompt_feedback}")
+            if hasattr(response.prompt_feedback, 'block_reason') and response.prompt_feedback.block_reason:
+                logger.error(f"LLM prompt blocked! Reason: {response.prompt_feedback.block_reason}")
+                raise RuntimeError(f"LLM prompt blocked: {response.prompt_feedback.block_reason}")
+
+        # Check if we have candidates
+        if hasattr(response, 'candidates') and response.candidates:
+            candidate = response.candidates[0]
+            if hasattr(candidate, 'finish_reason'):
+                logger.info(f"LLM finish reason: {candidate.finish_reason}")
+                if candidate.finish_reason and str(candidate.finish_reason) != 'STOP':
+                    logger.warning(f"LLM finished with non-STOP reason: {candidate.finish_reason}")
+
+            if hasattr(candidate, 'safety_ratings'):
+                logger.debug(f"LLM safety ratings: {candidate.safety_ratings}")
+
+        # Get the actual text response
+        result = response.text if response.text else None
+
+        if not result:
+            logger.error("LLM returned empty response!")
+            logger.error(f"Full response object: {response}")
+            raise RuntimeError("LLM returned empty response. Check prompt feedback and safety ratings above.")
+
         logger.info(f"LLM response received successfully, length: {len(result)} characters")
+        logger.debug(f"LLM response preview (first 200 chars): {result[:200]}")
         return result
+
     except Exception as e:
         logger.error(f"LLM call failed: {e}")
+        logger.error(f"Exception type: {type(e).__name__}")
         raise

@@ -46,10 +46,11 @@ export default function RunCard({ run, onRegenerate, onDownload }: RunCardProps)
     form.action = 'https://www.overleaf.com/docs';
     form.target = '_blank';
 
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     const input = document.createElement('input');
     input.type = 'hidden';
     input.name = 'snip_uri[]';
-    input.value = `http://localhost:8000${run.artifacts_urls.resume_tex}`;
+    input.value = `${apiUrl}${run.artifacts_urls.resume_tex}`;
 
     form.appendChild(input);
     document.body.appendChild(form);

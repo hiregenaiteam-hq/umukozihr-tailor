@@ -1,18 +1,69 @@
 import axios from 'axios';
 
-// Create base API instance
+// Create base API instance with environment variable support
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
 export const api = axios.create({
-  baseURL: 'http://localhost:8000/api/v1'
+  baseURL: `${API_BASE_URL}/api/v1`
 });
 
-// Add auth interceptor to include token in requests
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+// Add request interceptor for auth and logging
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    // Log outgoing request
+    console.log('📤 API Request:', {
+      method: config.method?.toUpperCase(),
+      url: config.url,
+      baseURL: config.baseURL,
+      fullURL: `${config.baseURL}${config.url}`,
+      data: config.data,
+      params: config.params,
+      headers: {
+        ...config.headers,
+        Authorization: config.headers.Authorization ? '[REDACTED]' : undefined
+      }
+    });
+
+    return config;
+  },
+  (error) => {
+    console.error('❌ API Request Error:', error);
+    return Promise.reject(error);
   }
-  return config;
-});
+);
+
+// Add response interceptor for logging
+api.interceptors.response.use(
+  (response) => {
+    // Log successful response
+    console.log('✅ API Response:', {
+      method: response.config.method?.toUpperCase(),
+      url: response.config.url,
+      status: response.status,
+      statusText: response.statusText,
+      data: response.data
+    });
+    return response;
+  },
+  (error) => {
+    // Log error response
+    console.error('❌ API Error Response:', {
+      method: error.config?.method?.toUpperCase(),
+      url: error.config?.url,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      errorMessage: error.message,
+      responseData: error.response?.data,
+      requestData: error.config?.data
+    });
+    return Promise.reject(error);
+  }
+);
 
 // Auth endpoints
 export const auth = {
@@ -45,7 +96,7 @@ export const profile = {
 export const generation = {
   // Generate documents (v1.3: uses database profile for authenticated users)
   generate: (profile: any, jobs: any[]) =>
-    api.post('/generate/generate', { profile, jobs, prefs: {} }),
+    api.post('/generate/', { profile, jobs, prefs: {} }),
 
   // Get generation status
   getStatus: (runId: string) =>
