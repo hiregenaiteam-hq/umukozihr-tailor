@@ -1,10 +1,14 @@
 import logging
 import asyncio
 import httpx
+import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.routes.v1_profile import router as profile_router
 from app.routes.v1_generate import router as generate_router
 from app.routes.v1_auth import router as auth_router
@@ -86,6 +90,58 @@ app.add_middleware(
     allow_headers=["*"],
 )
 logger.info(f"CORS middleware configured with origins: {ALLOWED_ORIGINS}")
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all incoming requests and responses"""
+    start_time = time.time()
+
+    # Log incoming request
+    logger.info(f"Incoming request: {request.method} {request.url.path}")
+    logger.info(f"Request headers: {dict(request.headers)}")
+    logger.info(f"Request client: {request.client.host if request.client else 'unknown'}")
+
+    # Process request
+    try:
+        response = await call_next(request)
+        process_time = time.time() - start_time
+
+        # Log response
+        logger.info(f"Response: {response.status_code} for {request.method} {request.url.path} (took {process_time:.3f}s)")
+
+        return response
+    except Exception as e:
+        logger.error(f"Request failed: {request.method} {request.url.path} - Error: {str(e)}", exc_info=True)
+        raise
+
+# Exception handlers
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Log and handle HTTP exceptions"""
+    logger.error(f"HTTP exception on {request.method} {request.url.path}: {exc.status_code} - {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Log and handle validation errors"""
+    logger.error(f"Validation error on {request.method} {request.url.path}: {exc.errors()}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()}
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Log and handle all other exceptions"""
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
 
 app.include_router(auth_router)
 app.include_router(profile_router, prefix="/api/v1/profile")
